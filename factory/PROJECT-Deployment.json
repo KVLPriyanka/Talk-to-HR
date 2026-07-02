@@ -1,0 +1,15 @@
+{
+	"name": "PROJECT-Deployment",
+	"properties": {
+		"trustModeClaimForMi": {
+			"value": "Disabled",
+			"editable": true
+		}
+	},
+	"location": "centralindia",
+	"identity": {
+		"type": "SystemAssigned",
+		"principalId": "ae92d020-9726-4314-8869-7960a4fe2c2f",
+		"tenantId": "d9328d26-55a4-475e-adba-f2021fbd93eb"
+	}
+}

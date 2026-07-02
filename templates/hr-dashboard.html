@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HR Dashboard - HR Portal</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h3>🏢 HR Portal</h3>
+                <span class="hr-badge">HR</span>
+            </div>
+            <div class="user-info">
+                <p><strong id="user-name">{{ user.full_name }}</strong></p>
+                <p class="role">HR Administrator</p>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="#" onclick="showTab('tickets')" class="nav-item active">📋 All Tickets</a>
+                <a href="#" onclick="showTab('users')" class="nav-item">👥 Manage Users</a>
+            </nav>
+            <button onclick="logout()" class="btn btn-danger" style="width: 100%; margin-top: auto;">Logout</button>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="top-bar">
+                <h2>HR Management Panel 🛠️</h2>
+                <p id="time-display"></p>
+            </header>
+
+            <!-- Tickets Tab -->
+            <section id="tickets-tab" class="tab-section active">
+                <div class="card">
+                    <h2>📋 Master List of Submissions</h2>
+                    <div class="filter-section">
+                        <input type="text" id="search-tickets" placeholder="Search by subject or username..." onkeyup="filterTickets()">
+                    </div>
+                    <div id="tickets-container" class="hr-tickets-table">
+                        <p class="loading">Loading tickets...</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Users Tab -->
+            <section id="users-tab" class="tab-section">
+                <div class="card">
+                    <h2>👥 Manage User Access</h2>
+                    <div id="users-container" class="hr-users-table">
+                        <p class="loading">Loading users...</p>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Ticket Review Modal -->
+    <div id="ticket-modal" class="modal">
+        <div class="modal-content modal-large">
+            <span class="close" onclick="closeModal()">&times;</span>
+            <div id="modal-body">
+                <!-- Filled dynamically -->
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script>
+        let allTickets = [];
+
+        document.addEventListener('DOMContentLoaded', function() {
+            checkAuthStatus();
+            updateTime();
+            setInterval(updateTime, 60000);
+            loadAllTickets();
+        });
+
+        function showTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-section').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelectorAll('.nav-item').forEach(item => {
+                item.classList.remove('active');
+            });
+
+            // Show selected tab
+            document.getElementById(tabName + '-tab').classList.add('active');
+            event.target.classList.add('active');
+
+            if (tabName === 'tickets') {
+                loadAllTickets();
+            } else if (tabName === 'users') {
+                loadAllUsers();
+            }
+        }
+
+        function loadAllTickets() {
+            fetch('/api/tickets/all', {
+                credentials: 'include'
+            })
+            .then(response => response.json())
+            .then(data => {
+                allTickets = data.tickets || [];
+                renderTickets(allTickets);
+            })
+            .catch(error => console.error('Error:', error));
+        }
+
+        function renderTickets(tickets) {
+            const container = document.getElementById('tickets-container');
+            if (tickets.length === 0) {
+                container.innerHTML = '<p class="empty-state">No tickets submitted yet.</p>';
+                return;
+            }
+
+            let html = '<table class="data-table"><thead><tr><th>ID</th><th>Applicant</th><th>Type</th><th>Subject</th><th>Status</th><th>Date</th><th>Action</th></tr></thead><tbody>';
+            
+            tickets.forEach(ticket => {
+                const date = new Date(ticket.created_at).toLocaleDateString();
+                html += `
+                    <tr>
+                        <td>#${ticket.id}</td>
+                        <td>${ticket.username}</td>
+                        <td><span class="type-badge">${ticket.type}</span></td>
+                        <td>${ticket.subject}</td>
+                        <td><span class="status-badge ${ticket.status.toLowerCase()}">${ticket.status}</span></td>
+                        <td>${date}</td>
+                        <td><button class="btn btn-sm" onclick="reviewTicket(${ticket.id})">Review</button></td>
+                    </tr>
+                `;
+            });
+
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        function filterTickets() {
+            const searchText = document.getElementById('search-tickets').value.toLowerCase();
+            const filtered = allTickets.filter(ticket => 
+                ticket.subject.toLowerCase().includes(searchText) ||
+                ticket.username.toLowerCase().includes(searchText)
+            );
+            renderTickets(filtered);
+        }
+
+        function reviewTicket(ticketId) {
+            fetch(`/api/tickets/${ticketId}`, {
+                credentials: 'include'
+            })
+            .then(response => response.json())
+            .then(data => {
+                const ticket = data.ticket;
+                const modal = document.getElementById('ticket-modal');
+                const modalBody = document.getElementById('modal-body');
+                
+                modalBody.innerHTML = `
+                    <h2>Review Ticket #${ticket.id}</h2>
+                    <div class="review-section">
+                        <div class="info-grid">
+                            <div><strong>Submitted By:</strong> ${ticket.username}</div>
+                            <div><strong>Type:</strong> ${ticket.type}</div>
+                            <div><strong>Subject:</strong> ${ticket.subject}</div>
+                            <div><strong>Date:</strong> ${new Date(ticket.created_at).toLocaleString()}</div>
+                            <div><strong>Current Status:</strong> <span class="status-badge ${ticket.status.toLowerCase()}">${ticket.status}</span></div>
+                        </div>
+                        
+                        <div class="description-section">
+                            <strong>Applicant's Message:</strong>
+                            <p>${ticket.description}</p>
+                        </div>
+
+                        <form id="update-form" onsubmit="updateTicket(event, ${ticket.id})">
+                            <div class="form-group">
+                                <label for="update-status">Update Status</label>
+                                <select id="update-status" required>
+                                    <option value="Pending Review" ${ticket.status === 'Pending Review' ? 'selected' : ''}>Pending Review</option>
+                                    <option value="Action Taken" ${ticket.status === 'Action Taken' ? 'selected' : ''}>Action Taken</option>
+                                    <option value="Resolved" ${ticket.status === 'Resolved' ? 'selected' : ''}>Resolved</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="update-notes">HR Response / Notes</label>
+                                <textarea id="update-notes" rows="6" required>${ticket.hr_notes}</textarea>
+                            </div>
+
+                            <button type="submit" class="btn btn-primary">Update Ticket</button>
+                        </form>
+                        <div id="update-message"></div>
+                    </div>
+                `;
+                
+                modal.style.display = 'block';
+            })
+            .catch(error => console.error('Error:', error));
+        }
+
+        function updateTicket(event, ticketId) {
+            event.preventDefault();
+            const status = document.getElementById('update-status').value;
+            const hr_notes = document.getElementById('update-notes').value;
+
+            fetch(`/api/tickets/${ticketId}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                credentials: 'include',
+                body: JSON.stringify({ status, hr_notes })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showMessage('update-message', '✅ Ticket updated successfully!', 'success');
+                    setTimeout(() => {
+                        closeModal();
+                        loadAllTickets();
+                    }, 1500);
+                } else {
+                    showMessage('update-message', '❌ Update failed', 'error');
+                }
+            })
+            .catch(error => showMessage('update-message', '❌ Error: ' + error, 'error'));
+        }
+
+        function loadAllUsers() {
+            fetch('/api/users', {
+                credentials: 'include'
+            })
+            .then(response => response.json())
+            .then(data => {
+                const container = document.getElementById('users-container');
+                if (!data.users || data.users.length === 0) {
+                    container.innerHTML = '<p class="empty-state">No users found.</p>';
+                    return;
+                }
+
+                let html = '<table class="data-table"><thead><tr><th>Username</th><th>Name</th><th>Employee ID</th><th>Mobile</th><th>Role</th><th>Status</th><th>Action</th></tr></thead><tbody>';
+                
+                data.users.forEach(user => {
+                    const status = user.is_active ? '✓ Active' : '✗ Inactive';
+                    const statusClass = user.is_active ? 'active' : 'inactive';
+                    html += `
+                        <tr>
+                            <td>${user.username}</td>
+                            <td>${user.full_name}</td>
+                            <td>${user.employee_id}</td>
+                            <td>${user.mobile_number}</td>
+                            <td>${user.role}</td>
+                            <td><span class="status-badge ${statusClass}">${status}</span></td>
+                            <td>
+                                <button class="btn btn-sm" onclick="toggleUserStatus('${user.username}')">
+                                    ${user.is_active ? 'Deactivate' : 'Activate'}
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                });
+
+                html += '</tbody></table>';
+                container.innerHTML = html;
+            })
+            .catch(error => console.error('Error:', error));
+        }
+
+        function toggleUserStatus(username) {
+            if (!confirm('Are you sure?')) return;
+
+            fetch(`/api/users/${username}/toggle`, {
+                method: 'POST',
+                credentials: 'include'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    loadAllUsers();
+                }
+            })
+            .catch(error => console.error('Error:', error));
+        }
+
+        function closeModal() {
+            document.getElementById('ticket-modal').style.display = 'none';
+        }
+
+        window.onclick = function(event) {
+            const modal = document.getElementById('ticket-modal');
+            if (event.target === modal) {
+                modal.style.display = 'none';
+            }
+        }
+
+        function logout() {
+            if (confirm('Are you sure you want to logout?')) {
+                fetch('/api/auth/logout', {
+                    method: 'POST',
+                    credentials: 'include'
+                })
+                .then(() => {
+                    window.location.href = '/';
+                });
+            }
+        }
+
+        function showMessage(elementId, message, type) {
+            const element = document.getElementById(elementId);
+            element.textContent = message;
+            element.className = 'message ' + type;
+            setTimeout(() => {
+                element.textContent = '';
+                element.className = '';
+            }, 5000);
+        }
+
+        function updateTime() {
+            const now = new Date();
+            document.getElementById('time-display').textContent = now.toLocaleTimeString();
+        }
+    </script>
+</body>
+</html>
